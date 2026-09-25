@@ -9,7 +9,7 @@ description = "TAQ (Tool Acquisition & Quick-install) - a lightweight Python pac
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
-authors = [{ name = "TAQ contributors" }]
+authors = [{ name = "Samarth Chugh" }]
 keywords = ["package manager", "pypi", "pip alternative", "installer"]
 classifiers = [
     "Development Status :: 3 - Alpha",
