@@ -102,6 +102,16 @@ def find_installed(name: str, search_path: list[str] | None = None) -> Installed
     return None
 
 
+def installed_index(search_path: list[str] | None = None) -> dict:
+    """Build a canonical-name -> InstalledDistribution map in one scan.
+
+    The resolver needs to check "is this already installed?" for every
+    package it looks at; scanning site-packages fresh for each one (like
+    find_installed does) would mean re-walking the directory over and over.
+    """
+    return {dist.canonical_name: dist for dist in iter_installed(search_path=search_path)}
+
+
 def parse_requires(dist: InstalledDistribution) -> list[Requirement]:
     """Parsed Requirement objects for a distribution's dependencies."""
     parsed = []

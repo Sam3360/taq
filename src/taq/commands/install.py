@@ -7,7 +7,7 @@ from ..environment import Environment
 from ..exceptions import TaqError
 from ..pypi import PyPIClient
 from ..requirements_file import parse_requirements_file
-from ..resolver import Resolver
+from ..resolver import Resolver, parse_requirement
 from ..uninstall_support import remove_distribution
 from ..wheel_installer import download, install_wheel
 
@@ -33,23 +33,38 @@ def run(args: argparse.Namespace, env: Environment) -> int:
         return 1
 
     index = PyPIClient(args.index_url) if args.index_url else PyPIClient()
-    resolver = Resolver(env, index=index)
+    search_path = [str(env.site_packages)]
+    installed_idx = dist_info.installed_index(search_path=search_path)
+    resolver = Resolver(env, index=index, installed_index=installed_idx)
+
+    # With --upgrade, the packages named on the command line should always
+    # be re-checked against the index (not silently kept at whatever's
+    # already installed); everything else can still be reused as-is.
+    force_latest = set()
+    if args.upgrade:
+        for text in args.packages:
+            force_latest.add(parse_requirement(text).name)
 
     print(f"Resolving {len(requirement_strings)} requirement(s) for {env.describe()} ...")
-    candidates = resolver.resolve(requirement_strings)
+    candidates = resolver.resolve(requirement_strings, force_latest=force_latest)
     candidates.sort(key=lambda c: c.name.lower())
 
     to_install = []
     already_satisfied = []
     for candidate in candidates:
-        installed = dist_info.find_installed(candidate.name, search_path=[str(env.site_packages)])
-        if installed is not None and not args.upgrade and candidate.specifier.contains(installed.version, prereleases=True):
+        installed = installed_idx.get(candidate.canonical_name)
+        if candidate.installed or (
+            installed is not None
+            and not args.upgrade
+            and candidate.specifier.contains(installed.version, prereleases=True)
+        ):
             already_satisfied.append((candidate, installed))
         else:
             to_install.append((candidate, installed))
 
     for candidate, installed in already_satisfied:
-        print(f"  already satisfied: {candidate.name} {installed.version}")
+        version = installed.version if installed else candidate.version
+        print(f"  already satisfied: {candidate.name} {version}")
 
     if not to_install:
         print("Nothing to install.")

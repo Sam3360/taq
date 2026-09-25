@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "taq"
-version = "0.1.0"
+version = "0.2.0"
 description = "TAQ (Tool Acquisition & Quick-install) - a lightweight Python package manager"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
-authors = [{ name = "Samarth Chugh (Sam3360)" }]
+authors = [{ name = "TAQ contributors" }]
 keywords = ["package manager", "pypi", "pip alternative", "installer"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -32,7 +32,7 @@ dependencies = [
 test = ["pytest>=7"]
 
 [project.urls]
-Homepage = "https://github.com/Sam3360/taq"
+Homepage = "https://example.com/taq"
 
 [project.scripts]
 taq = "taq.cli:main"

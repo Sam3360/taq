@@ -147,3 +147,116 @@ def test_extras_not_requested_are_skipped(env):
 
     result = {c.name for c in resolver.resolve(["app"])}
     assert result == {"app"}
+
+
+def test_multiple_extras_both_pull_in_dependencies(env):
+    index = FakeIndex()
+    index.add(
+        "app",
+        "1.0.0",
+        requires=[
+            'lib-a>=1.0 ; extra == "a"',
+            'lib-b>=1.0 ; extra == "b"',
+        ],
+    )
+    index.add("lib-a", "1.0.0")
+    index.add("lib-b", "1.0.0")
+    resolver = Resolver(env, index=index)
+
+    result = {c.name for c in resolver.resolve(["app[a,b]"])}
+    assert result == {"app", "lib-a", "lib-b"}
+
+
+def test_circular_dependency_does_not_hang(env):
+    index = FakeIndex()
+    index.add("a", "1.0.0", requires=["b>=1.0"])
+    index.add("b", "1.0.0", requires=["a>=1.0"])
+    resolver = Resolver(env, index=index)
+
+    result = {c.name: c.version for c in resolver.resolve(["a"])}
+    assert result == {"a": "1.0.0", "b": "1.0.0"}
+
+
+def test_invalid_requirement_string_raises():
+    from taq.exceptions import InvalidRequirementError
+    from taq.resolver import parse_requirement
+
+    with pytest.raises(InvalidRequirementError):
+        parse_requirement("this is not === a valid requirement !!!")
+
+
+class _FakeInstalledDist:
+    def __init__(self, name, version, requires=None):
+        self.name = name
+        self.version = version
+        self.requires = requires or []
+
+    @property
+    def canonical_name(self):
+        from packaging.utils import canonicalize_name
+
+        return canonicalize_name(self.name)
+
+
+def test_reuses_already_installed_compatible_package(env):
+    """An installed package satisfying the specifier should be reused
+    without ever touching the (fake) index for its own release info."""
+    index = FakeIndex()
+    index.add("foo", "9.9.9")  # if the resolver "cheats" and hits the index, it'd pick this
+    installed = {"foo": _FakeInstalledDist("foo", "1.0.0")}
+    resolver = Resolver(env, index=index, installed_index=installed)
+
+    result = resolver.resolve(["foo>=1.0"])
+    assert len(result) == 1
+    assert result[0].version == "1.0.0"
+    assert result[0].installed is True
+    assert result[0].wheel is None
+
+
+def test_does_not_reuse_installed_when_it_does_not_satisfy(env):
+    index = FakeIndex()
+    index.add("foo", "2.0.0")
+    installed = {"foo": _FakeInstalledDist("foo", "1.0.0")}
+    resolver = Resolver(env, index=index, installed_index=installed)
+
+    result = resolver.resolve(["foo>=2.0"])
+    assert result[0].version == "2.0.0"
+    assert result[0].installed is False
+
+
+def test_force_latest_bypasses_installed_reuse(env):
+    index = FakeIndex()
+    index.add("foo", "1.0.0")
+    index.add("foo", "2.0.0")
+    installed = {"foo": _FakeInstalledDist("foo", "1.0.0")}
+    resolver = Resolver(env, index=index, installed_index=installed)
+
+    # Without force_latest, the installed 1.0.0 satisfies "foo" and is reused.
+    reused = resolver.resolve(["foo"])
+    assert reused[0].version == "1.0.0"
+    assert reused[0].installed is True
+
+    # With force_latest, it must go to the index and pick the newest.
+    upgraded = resolver.resolve(["foo"], force_latest={"foo"})
+    assert upgraded[0].version == "2.0.0"
+    assert upgraded[0].installed is False
+
+
+def test_transitive_dependency_reused_from_installed(env):
+    """A dependency pulled in transitively should also be reused - and its
+    own sub-dependencies should come from local metadata, not the index."""
+    index = FakeIndex()
+    index.add("app", "1.0.0", requires=["lib>=1.0"])
+    index.add("lib", "9.9.9")  # should never be picked
+    installed = {
+        "lib": _FakeInstalledDist("lib", "1.5.0", requires=["deep>=1.0"]),
+        "deep": _FakeInstalledDist("deep", "1.0.0"),
+    }
+    resolver = Resolver(env, index=index, installed_index=installed)
+
+    result = {c.name: c for c in resolver.resolve(["app"])}
+    assert result["lib"].version == "1.5.0"
+    assert result["lib"].installed is True
+    # "deep" came from lib's *local* metadata even though "deep" was never
+    # registered in the fake index at all - proving it wasn't fetched remotely.
+    assert "deep" in result

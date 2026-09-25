@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 
+from packaging.utils import canonicalize_name
+
 from .. import dist_info
 from ..environment import Environment
 from ..exceptions import DistributionNotFoundError
 from ..pypi import PyPIClient
-from ..resolver import Resolver
+from ..resolver import Resolver, parse_requirement
 from ..uninstall_support import remove_distribution
 from ..wheel_installer import download, install_wheel
 
@@ -20,20 +22,28 @@ def add_parser(subparsers) -> None:
 
 
 def run(args: argparse.Namespace, env: Environment) -> int:
+    search_path = [str(env.site_packages)]
+    installed_idx = dist_info.installed_index(search_path=search_path)
+
+    force_latest = set()
     for name in args.packages:
-        base_name = name.split("=")[0].split(">")[0].split("<")[0].split("[")[0].strip()
-        if dist_info.find_installed(base_name, search_path=[str(env.site_packages)]) is None:
+        base_req = parse_requirement(name)
+        if installed_idx.get(canonicalize_name(base_req.name)) is None:
             raise DistributionNotFoundError(
-                f"'{base_name}' is not installed in {env.describe()} - use 'taq install' instead"
+                f"'{base_req.name}' is not installed in {env.describe()} - use 'taq install' instead"
             )
+        force_latest.add(base_req.name)
 
     index = PyPIClient(args.index_url) if args.index_url else PyPIClient()
-    resolver = Resolver(env, index=index)
-    candidates = resolver.resolve(args.packages)
+    resolver = Resolver(env, index=index, installed_index=installed_idx)
+    # Everything named on the command line is force-refreshed against the
+    # index; anything pulled in transitively is still reused if an
+    # already-installed copy satisfies the (possibly updated) constraints.
+    candidates = resolver.resolve(args.packages, force_latest=force_latest)
 
     did_something = False
     for candidate in sorted(candidates, key=lambda c: c.name.lower()):
-        installed = dist_info.find_installed(candidate.name, search_path=[str(env.site_packages)])
+        installed = installed_idx.get(candidate.canonical_name)
         if installed is not None and installed.version == candidate.version:
             print(f"  {candidate.name} {installed.version} is already the latest matching version")
             continue

@@ -6,7 +6,7 @@ import argparse
 import sys
 
 from . import __version__
-from .commands import install, list_cmd, outdated, show, uninstall, upgrade
+from .commands import deps, install, list_cmd, outdated, show, uninstall, upgrade
 from .environment import current_environment
 from .exceptions import TaqError
 
@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd.add_parser(subparsers)
     show.add_parser(subparsers)
     outdated.add_parser(subparsers)
+    deps.add_parser(subparsers)
 
     return parser
 
